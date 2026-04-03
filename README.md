@@ -11,7 +11,7 @@ Each user becomes a building:
 ## Data sources
 
 - User directory API:
-	- `https://dev.mulearn.org/api/v1/dashboard/user/search/?search=&role=&pageIndex=1&perPage=100`
+	- `https://mulearn.org/api/v1/dashboard/user/search/?search=&role=&pageIndex=1&perPage=100`
 - Activity log API per user:
 	- `https://mulearn.org/api/v1/dashboard/profile/user-log/{muid}/`
 
@@ -27,12 +27,12 @@ npm run dev
 
 Open http://localhost:3000.
 
-## Optional configuration
+## Default hardcoded configuration
 
-Create `.env.local` and override if required:
+These values are hardcoded in the app config:
 
 ```bash
-CITY_USERS_API=https://dev.mulearn.org/api/v1/dashboard/user/search/
+CITY_USERS_API=https://mulearn.org/api/v1/dashboard/user/search/
 CITY_LOG_API_BASE=https://mulearn.org/api/v1/dashboard/profile/user-log
 CITY_PER_PAGE=100
 CITY_USER_LIMIT=100
@@ -45,7 +45,7 @@ CITY_CHUNK_SIZE=44
 
 - Initial data fetching is server-side (`app/page.tsx`), and incremental chunk loading uses an internal route handler (`app/api/city/chunk/route.ts`).
 - Higher `CITY_LOAD_DISTANCE` and `CITY_USER_LIMIT` values load more users/logs and increase network cost.
-- If no users load, verify API reachability and environment values.
+- If no users load, verify API reachability.
 
 # mulearn-city
 # mulearn-city

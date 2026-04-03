@@ -64,18 +64,14 @@ type FetchCityResidentOptions = {
   cache?: RequestCache;
 };
 
-export const CITY_USERS_API =
-  process.env.CITY_USERS_API ??
-  "https://mulearn.org/api/v1/dashboard/user/search/";
-export const CITY_LOG_API_BASE =
-  process.env.CITY_LOG_API_BASE ??
-  "https://mulearn.org/api/v1/dashboard/profile/user-log";
+export const CITY_USERS_API = "https://mulearn.org/api/v1/dashboard/user/search/";
+export const CITY_LOG_API_BASE = "https://mulearn.org/api/v1/dashboard/profile/user-log";
 
-export const CITY_PER_PAGE = readInt(process.env.CITY_PER_PAGE, 100, 1, 100);
-export const CITY_USER_LIMIT = readInt(process.env.CITY_USER_LIMIT, 100, 1, 100);
-export const CITY_RECENT_DAYS = readInt(process.env.CITY_RECENT_DAYS, 30, 1, 365);
-export const CITY_LOAD_DISTANCE = readInt(process.env.CITY_LOAD_DISTANCE, 1, 1, 4);
-export const CITY_CHUNK_SIZE = readInt(process.env.CITY_CHUNK_SIZE, 44, 24, 120);
+export const CITY_PER_PAGE = 100;
+export const CITY_USER_LIMIT = 100;
+export const CITY_RECENT_DAYS = 30;
+export const CITY_LOAD_DISTANCE = 1;
+export const CITY_CHUNK_SIZE = 44;
 
 const KARMA_FORMATTER = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,

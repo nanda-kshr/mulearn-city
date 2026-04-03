@@ -25,8 +25,8 @@ export default async function Home() {
           <section className="city-empty" aria-live="polite">
             <h2>No residents were loaded</h2>
             <p>
-              Check API reachability or update the environment variables in
-              <code>.env.local</code>.
+              Check API reachability. City defaults are hardcoded in the app
+              config.
             </p>
           </section>
         ) : (
