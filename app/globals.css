@@ -129,7 +129,7 @@ html {
   grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr);
   gap: 1rem;
   align-items: stretch;
-}
+} 
 
 .city-stage {
   position: relative;
