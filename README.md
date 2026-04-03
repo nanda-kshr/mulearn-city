@@ -47,3 +47,4 @@ CITY_CHUNK_SIZE=44
 - Higher `CITY_LOAD_DISTANCE` and `CITY_USER_LIMIT` values load more users/logs and increase network cost.
 - If no users load, verify API reachability and environment values.
 
+# mulearn-city
