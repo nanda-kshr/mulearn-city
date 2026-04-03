@@ -120,11 +120,11 @@ export default function CityScene({
   const [selectedMuid, setSelectedMuid] = useState<string | null>(
     initialResidents[0]?.muid ?? null,
   );
-  const [hoveredMuid, setHoveredMuid] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchFeedback, setSearchFeedback] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
   const [controlsPaused, setControlsPaused] = useState(false);
   const [playerChunk, setPlayerChunk] = useState<ChunkCoord>({ x: 0, z: 0 });
   const [cameraFocusRequest, setCameraFocusRequest] = useState<CameraFocusRequest | null>(
@@ -159,6 +159,7 @@ export default function CityScene({
     () => residents.reduce((sum, resident) => sum + resident.karma, 0),
     [residents],
   );
+  const controlsLocked = controlsPaused || !hasStarted;
 
   const focusCameraOnMuid = useCallback((muid: string) => {
     cameraFocusIdRef.current += 1;
@@ -166,6 +167,10 @@ export default function CityScene({
       id: cameraFocusIdRef.current,
       muid,
     });
+  }, []);
+
+  const handleHover = useCallback(() => {
+    // Details panel intentionally ignores hover and updates only on click/search.
   }, []);
 
   const updatePlayerChunk = useCallback((x: number, z: number) => {
@@ -270,27 +275,17 @@ export default function CityScene({
     }
   }, [chunkMap, desiredChunkCoords, perPage, recentDays, totalPages, userLimit]);
 
-  const loadedInRange = useMemo(
-    () =>
-      desiredChunkCoords.filter((coord) => {
-        const key = chunkKey(coord.x, coord.z);
-        if (chunkMap[key]) {
-          return true;
-        }
-
-        return chunkCoordToPageIndex(coord.x, coord.z) > totalPages;
-      }).length,
-    [chunkMap, desiredChunkCoords, totalPages],
-  );
-
   const selectedResident = useMemo(() => {
-    const current = hoveredMuid ?? selectedMuid;
-    if (!current) {
+    if (!selectedMuid) {
       return residents[0] ?? null;
     }
 
-    return residents.find((resident) => resident.muid === current) ?? residents[0] ?? null;
-  }, [hoveredMuid, selectedMuid, residents]);
+    return (
+      residents.find((resident) => resident.muid === selectedMuid) ??
+      residents[0] ??
+      null
+    );
+  }, [selectedMuid, residents]);
 
   const topRecentlyActive = useMemo(
     () =>
@@ -395,7 +390,7 @@ export default function CityScene({
         const payload = (await response.json()) as CitySearchResponse;
         const resident = payload.resident;
         if (!response.ok || !resident) {
-          setSearchFeedback(payload.error ?? "No matching MUID found.");
+          setSearchFeedback(payload.error ?? "No matching MUID found or it might be private.");
           return;
         }
 
@@ -428,136 +423,182 @@ export default function CityScene({
     setSearchFeedback(`Camera focused on ${muid}.`);
   }, []);
 
+  const handleStart = useCallback(() => {
+    setHasStarted(true);
+    setControlsPaused(false);
+  }, []);
+
+  const handleOpenMenu = useCallback(() => {
+    setHasStarted(false);
+    setControlsPaused(true);
+  }, []);
+
   return (
     <section className="city-stage" aria-label="3D city view">
       <div className={`city-canvas-shell${isFocused ? " is-focused" : ""}`}>
         <CitySceneCanvas
           chunks={loadedChunks}
           chunkSize={chunkSize}
+          recentDays={recentDays}
           selectedMuid={selectedMuid}
-          controlsPaused={controlsPaused}
+          controlsPaused={controlsLocked}
           cameraFocusRequest={cameraFocusRequest}
           onSelect={setSelectedMuid}
-          onHover={setHoveredMuid}
+          onHover={handleHover}
           onFocusChange={setIsFocused}
           onPlayerChunkChange={updatePlayerChunk}
           onCameraFocusComplete={handleCameraFocusComplete}
         />
 
-        <form className="city-search city-search-overlay" onSubmit={handleSearchSubmit}>
-          <label className="city-search-label" htmlFor="city-search-muid">
-            Search MUID
-          </label>
-          <div className="city-search-row">
-            <input
-              id="city-search-muid"
-              className="city-search-input"
-              type="text"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              onFocus={() => setControlsPaused(true)}
-              onBlur={() => setControlsPaused(false)}
-              onKeyDown={(event) => event.stopPropagation()}
-              onKeyUp={(event) => event.stopPropagation()}
-              placeholder="eg: someone@mulearn"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button
-              type="submit"
-              className="city-search-button"
-              disabled={isSearching}
-            >
-              {isSearching ? "Searching" : "Search"}
-            </button>
-          </div>
-          {searchFeedback ? (
-            <p className="city-search-feedback" role="status" aria-live="polite">
-              {searchFeedback}
-            </p>
-          ) : null}
-        </form>
-
-        <div className="city-overlay-hud" aria-hidden>
-          <p className="city-overlay-title">muLearn City</p>
-          <p className="city-overlay-meta">
-            Loaded residents {residents.length} - Karma {KARMA_FORMATTER.format(totalKarma)}
-          </p>
-          <p className="city-overlay-meta">
-            Chunk {playerChunk.x},{playerChunk.z} - Loaded {loadedInRange}/{desiredChunkCoords.length} nearby pages
-          </p>
-        </div>
-
-        <aside className="city-inspector city-inspector-overlay">
-          <p className="city-inspector-hint">
-            {isFocused
-              ? "First-person mode: WASD move, Space up, Control down, mouse look. Esc or click releases cursor."
-              : "Click the city to focus controls. Click again to release cursor."}
-          </p>
-
-          {selectedResident ? (
-            <section className="city-inspector-card" aria-live="polite">
-              <p className="city-inspector-kicker">Selected building</p>
-              <h2>{selectedResident.name}</h2>
-              <p className="city-inspector-muid">@{getAlias(selectedResident.muid)}</p>
-
-              <dl className="city-inspector-data">
-                <div>
-                  <dt>Karma</dt>
-                  <dd>{selectedResident.karmaLabel}</dd>
-                </div>
-                <div>
-                  <dt>Recent events</dt>
-                  <dd>{selectedResident.recentEvents}</dd>
-                </div>
-                <div>
-                  <dt>Organization</dt>
-                  <dd>{selectedResident.organization}</dd>
-                </div>
-                <div>
-                  <dt>Interest</dt>
-                  <dd>{selectedResident.interest}</dd>
-                </div>
-                <div>
-                  <dt>Last active</dt>
-                  <dd>{selectedResident.lastActiveLabel}</dd>
-                </div>
-              </dl>
-
-              <p className="city-inspector-task" title={selectedResident.latestTask}>
-                Latest task: {selectedResident.latestTask}
+        {!hasStarted ? (
+          <div className="city-start-menu">
+            <section className="city-start-card" aria-label="Start menu">
+              <p className="city-start-kicker">Night Mode City</p>
+              <h2 className="city-start-title">muLearn City</h2>
+              <p className="city-start-meta">
+                Loaded residents {residents.length} - Karma {KARMA_FORMATTER.format(totalKarma)}
               </p>
+              <div className="city-start-actions">
+                <button
+                  type="button"
+                  className="city-start-button"
+                  onClick={handleStart}
+                >
+                  Start
+                </button>
+                <a className="city-start-link" href="https://mulearn.org">
+                  Go to muLearn
+                </a>
+              </div>
             </section>
-          ) : null}
+          </div>
+        ) : null}
 
-          <section className="city-legend">
-            <h3>Visual legend</h3>
-            <p>Tower height scales with total karma.</p>
-            <p>Glow intensity scales with activity in the last {recentDays} days.</p>
-            <p>Color is derived from each member&apos;s domain signature.</p>
-          </section>
+        {hasStarted ? (
+          <div className="city-menu-quick-actions">
+            <button
+              type="button"
+              className="city-menu-quick-button"
+              onClick={handleOpenMenu}
+            >
+              Menu
+            </button>
+            <a className="city-menu-quick-link" href="https://mulearn.org">
+              Go to muLearn
+            </a>
+          </div>
+        ) : null}
 
-          <section className="city-hot">
-            <h3>Most active now</h3>
-            <ul className="city-hot-list">
-              {topRecentlyActive.map((resident) => {
-                const selected = resident.muid === selectedMuid;
-                return (
-                  <li key={resident.muid}>
-                    <button
-                      type="button"
-                      className={`city-hot-button${selected ? " is-selected" : ""}`}
-                      onClick={() => setSelectedMuid(resident.muid)}
-                    >
-                      <span>{resident.name}</span>
-                      <span>{resident.recentEvents} evt</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        </aside>
+        {hasStarted ? (
+          <form className="city-search city-search-overlay" onSubmit={handleSearchSubmit}>
+            <label className="city-search-label" htmlFor="city-search-muid">
+              Search MUID
+            </label>
+            <div className="city-search-row">
+              <input
+                id="city-search-muid"
+                className="city-search-input"
+                type="text"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onFocus={() => setControlsPaused(true)}
+                onBlur={() => setControlsPaused(false)}
+                onKeyDown={(event) => event.stopPropagation()}
+                onKeyUp={(event) => event.stopPropagation()}
+                placeholder="eg: someone@mulearn"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="submit"
+                className="city-search-button"
+                disabled={isSearching}
+              >
+                {isSearching ? "Searching" : "Search"}
+              </button>
+            </div>
+            {searchFeedback ? (
+              <p className="city-search-feedback" role="status" aria-live="polite">
+                {searchFeedback}
+              </p>
+            ) : null}
+          </form>
+        ) : null}
+
+        {hasStarted ? (
+          <>
+            <div className="city-overlay-hud" aria-hidden>
+              <p className="city-overlay-title">muLearn City</p>
+              <p className="city-overlay-meta">
+                Loaded residents {residents.length} - Karma {KARMA_FORMATTER.format(totalKarma)}
+              </p>
+            </div>
+
+            <aside className="city-inspector city-inspector-overlay">
+              <p className="city-inspector-hint">
+                {isFocused
+                  ? "First-person mode: WASD move, Space up, Control down, mouse look. Esc or click releases cursor."
+                  : "Click the city to focus controls. Click again to release cursor."}
+              </p>
+
+              {selectedResident ? (
+                <section className="city-inspector-card" aria-live="polite">
+                  <p className="city-inspector-kicker">Selected building</p>
+                  <h2>{selectedResident.name}</h2>
+                  <p className="city-inspector-muid">@{getAlias(selectedResident.muid)}</p>
+
+                  <dl className="city-inspector-data">
+                    <div>
+                      <dt>Karma</dt>
+                      <dd>{selectedResident.karmaLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>Recent events</dt>
+                      <dd>{selectedResident.recentEvents}</dd>
+                    </div>
+                    <div>
+                      <dt>Organization</dt>
+                      <dd>{selectedResident.organization}</dd>
+                    </div>
+                    <div>
+                      <dt>Interest</dt>
+                      <dd>{selectedResident.interest}</dd>
+                    </div>
+                    <div>
+                      <dt>Last active</dt>
+                      <dd>{selectedResident.lastActiveLabel}</dd>
+                    </div>
+                  </dl>
+
+                  <p className="city-inspector-task" title={selectedResident.latestTask}>
+                    Latest task: {selectedResident.latestTask}
+                  </p>
+                </section>
+              ) : null}
+
+              <section className="city-hot">
+                <h3>Most active now</h3>
+                <ul className="city-hot-list">
+                  {topRecentlyActive.map((resident) => {
+                    const selected = resident.muid === selectedMuid;
+                    return (
+                      <li key={resident.muid}>
+                        <button
+                          type="button"
+                          className={`city-hot-button${selected ? " is-selected" : ""}`}
+                          onClick={() => setSelectedMuid(resident.muid)}
+                        >
+                          <span>{resident.name}</span>
+                          <span>{resident.recentEvents} evt</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            </aside>
+          </>
+        ) : null}
       </div>
     </section>
   );

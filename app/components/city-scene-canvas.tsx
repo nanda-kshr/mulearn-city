@@ -1,6 +1,6 @@
 "use client";
 
-import { Sky } from "@react-three/drei";
+import { Stars } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { memo, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -9,6 +9,7 @@ import type { CityChunk, CityResident } from "@/app/lib/city-types";
 type CitySceneCanvasProps = {
   chunks: CityChunk[];
   chunkSize: number;
+  recentDays: number;
   selectedMuid: string | null;
   controlsPaused: boolean;
   cameraFocusRequest: CameraFocusRequest | null;
@@ -41,6 +42,8 @@ type TowerLayout = {
   height: number;
   color: THREE.Color;
   emissiveIntensity: number;
+  windowActiveRatio: number;
+  windowPatternVariant: number;
   seed: number;
 };
 
@@ -71,6 +74,8 @@ type CameraAnimation = {
   fromLookTarget: THREE.Vector3;
   toLookTarget: THREE.Vector3;
 };
+
+const WINDOW_TEXTURE_CACHE = new Map<string, THREE.CanvasTexture>();
 
 function stableHash(input: string): number {
   let hash = 2166136261;
@@ -105,7 +110,80 @@ function isEditableElement(target: EventTarget | null): boolean {
   );
 }
 
-function buildTowerLayout(chunks: CityChunk[], chunkSize: number): TowerLayout[] {
+function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function getWindowTexture(activeRatio: number, variant: number): THREE.CanvasTexture {
+  const bucket = Math.round(THREE.MathUtils.clamp(activeRatio, 0, 1) * 7);
+  const normalizedVariant = THREE.MathUtils.euclideanModulo(variant, 6);
+  const key = `${bucket}:${normalizedVariant}`;
+  const cached = WINDOW_TEXTURE_CACHE.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 208;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    const fallback = new THREE.CanvasTexture(canvas);
+    WINDOW_TEXTURE_CACHE.set(key, fallback);
+    return fallback;
+  }
+
+  context.fillStyle = "#10192b";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const random = createSeededRandom(stableHash(`${key}:windows`));
+  const cols = 5;
+  const rows = 16;
+  const cellWidth = canvas.width / cols;
+  const cellHeight = canvas.height / rows;
+  const litChance = THREE.MathUtils.lerp(0.04, 0.88, bucket / 7);
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const lit = random() < litChance;
+      const x = col * cellWidth + 3;
+      const y = row * cellHeight + 2;
+      const width = Math.max(4, cellWidth - 6);
+      const height = Math.max(5, cellHeight - 4);
+
+      if (lit) {
+        const hue = 38 + random() * 10;
+        const lightness = 52 + random() * 22;
+        const alpha = 0.78 + random() * 0.2;
+        context.fillStyle = `hsla(${hue}, 92%, ${lightness}%, ${alpha})`;
+      } else {
+        const alpha = 0.5 + random() * 0.35;
+        context.fillStyle = `rgba(19, 28, 44, ${alpha})`;
+      }
+
+      context.fillRect(x, y, width, height);
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 1);
+  texture.needsUpdate = true;
+  WINDOW_TEXTURE_CACHE.set(key, texture);
+  return texture;
+}
+
+function buildTowerLayout(
+  chunks: CityChunk[],
+  chunkSize: number,
+  recentDays: number,
+): TowerLayout[] {
   const layouts: TowerLayout[] = [];
 
   for (const chunk of chunks) {
@@ -141,6 +219,12 @@ function buildTowerLayout(chunks: CityChunk[], chunkSize: number): TowerLayout[]
       const heightPct = Number.isFinite(resident.buildingHeight)
         ? resident.buildingHeight
         : 34;
+      const activeDayEstimate = Math.min(recentDays, resident.recentEvents);
+      const windowActiveRatio = THREE.MathUtils.clamp(
+        activeDayEstimate / Math.max(1, recentDays),
+        0,
+        1,
+      );
 
       layouts.push({
         id: `${chunk.key}:${resident.muid}:${index}`,
@@ -150,8 +234,10 @@ function buildTowerLayout(chunks: CityChunk[], chunkSize: number): TowerLayout[]
         width: 1.35 + (resident.recentEvents % 3) * 0.2,
         depth: 1.35 + (resident.totalEvents % 3) * 0.2,
         height: 1.9 + (Math.max(10, Math.min(100, heightPct)) / 100) * 11.5,
-        color: new THREE.Color().setHSL(hue / 360, 0.63, 0.52),
-        emissiveIntensity: Math.min(1.35, Math.max(0.14, 0.14 + glow / 65)),
+        color: new THREE.Color().setHSL(hue / 360, 0.3, 0.2),
+        emissiveIntensity: Math.min(0.35, Math.max(0.05, 0.05 + glow / 280)),
+        windowActiveRatio,
+        windowPatternVariant: stableHash(`${resident.muid}:${chunk.key}`),
         seed: hue / 45,
       });
     });
@@ -165,17 +251,17 @@ function Ground({ span }: { span: number }) {
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[span, span]} />
-        <meshStandardMaterial color="#2f3d4b" roughness={0.96} metalness={0.03} />
+        <meshStandardMaterial color="#0f1728" roughness={0.98} metalness={0.02} />
       </mesh>
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} receiveShadow>
         <ringGeometry args={[span * 0.18, span * 0.2, 64]} />
         <meshStandardMaterial
-          color="#5d7389"
+          color="#2c3c64"
           transparent
-          opacity={0.34}
-          roughness={0.9}
-          metalness={0.08}
+          opacity={0.26}
+          roughness={0.94}
+          metalness={0.05}
         />
       </mesh>
     </>
@@ -185,6 +271,14 @@ function Ground({ span }: { span: number }) {
 function Tower({ tower, active, onSelect, onHover }: TowerProps) {
   const towerRef = useRef<THREE.Mesh>(null);
   const beaconRef = useRef<THREE.Mesh>(null);
+  const windowTexture = useMemo(
+    () => getWindowTexture(tower.windowActiveRatio, tower.windowPatternVariant),
+    [tower.windowActiveRatio, tower.windowPatternVariant],
+  );
+  const windowEmissiveIntensity = useMemo(
+    () => THREE.MathUtils.lerp(0.08, 1.35, tower.windowActiveRatio),
+    [tower.windowActiveRatio],
+  );
 
   useFrame((state, delta) => {
     if (towerRef.current) {
@@ -247,7 +341,76 @@ function Tower({ tower, active, onSelect, onHover }: TowerProps) {
         onClick={handleClick}
       >
         <planeGeometry args={[tower.width * 0.72, tower.height * 0.8]} />
-        <meshBasicMaterial color="#fff7ca" transparent opacity={0.16 + tower.emissiveIntensity * 0.2} />
+        <meshStandardMaterial
+          map={windowTexture}
+          emissiveMap={windowTexture}
+          emissive="#ffcb8a"
+          emissiveIntensity={windowEmissiveIntensity}
+          roughness={0.72}
+          metalness={0.06}
+          transparent
+          opacity={0.95}
+        />
+      </mesh>
+
+      <mesh
+        position={[0, tower.height * 0.52, -tower.depth / 2 - 0.01]}
+        rotation={[0, Math.PI, 0]}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+        onClick={handleClick}
+      >
+        <planeGeometry args={[tower.width * 0.72, tower.height * 0.8]} />
+        <meshStandardMaterial
+          map={windowTexture}
+          emissiveMap={windowTexture}
+          emissive="#ffcb8a"
+          emissiveIntensity={windowEmissiveIntensity}
+          roughness={0.72}
+          metalness={0.06}
+          transparent
+          opacity={0.95}
+        />
+      </mesh>
+
+      <mesh
+        position={[tower.width / 2 + 0.01, tower.height * 0.52, 0]}
+        rotation={[0, -Math.PI / 2, 0]}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+        onClick={handleClick}
+      >
+        <planeGeometry args={[tower.depth * 0.72, tower.height * 0.8]} />
+        <meshStandardMaterial
+          map={windowTexture}
+          emissiveMap={windowTexture}
+          emissive="#ffcb8a"
+          emissiveIntensity={windowEmissiveIntensity}
+          roughness={0.72}
+          metalness={0.06}
+          transparent
+          opacity={0.95}
+        />
+      </mesh>
+
+      <mesh
+        position={[-tower.width / 2 - 0.01, tower.height * 0.52, 0]}
+        rotation={[0, Math.PI / 2, 0]}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+        onClick={handleClick}
+      >
+        <planeGeometry args={[tower.depth * 0.72, tower.height * 0.8]} />
+        <meshStandardMaterial
+          map={windowTexture}
+          emissiveMap={windowTexture}
+          emissive="#ffcb8a"
+          emissiveIntensity={windowEmissiveIntensity}
+          roughness={0.72}
+          metalness={0.06}
+          transparent
+          opacity={0.95}
+        />
       </mesh>
 
       <mesh ref={beaconRef} position={[0, tower.height + 0.36, 0]}>
@@ -546,15 +709,20 @@ function FirstPersonController({
           }
           approachDirection.normalize();
 
-          const approachDistance = 8.4;
+          const approachDistance = THREE.MathUtils.clamp(
+            focusTarget.height * 0.38,
+            3.2,
+            5.6,
+          );
+          const towerTopY = focusTarget.height + 0.36;
           const towerPosition = new THREE.Vector3(
             focusTarget.x,
-            Math.max(1.2, focusTarget.height * 0.58),
+            towerTopY,
             focusTarget.z,
           );
           const focusPosition = new THREE.Vector3(
             focusTarget.x - approachDirection.x * approachDistance,
-            Math.max(4.4, focusTarget.height * 0.62 + 4.2),
+            towerTopY,
             focusTarget.z - approachDirection.z * approachDistance,
           );
 
@@ -644,6 +812,7 @@ function FirstPersonController({
 function CitySceneCanvas({
   chunks,
   chunkSize,
+  recentDays,
   selectedMuid,
   controlsPaused,
   cameraFocusRequest,
@@ -653,7 +822,10 @@ function CitySceneCanvas({
   onPlayerChunkChange,
   onCameraFocusComplete,
 }: CitySceneCanvasProps) {
-  const towers = useMemo(() => buildTowerLayout(chunks, chunkSize), [chunks, chunkSize]);
+  const towers = useMemo(
+    () => buildTowerLayout(chunks, chunkSize, recentDays),
+    [chunks, chunkSize, recentDays],
+  );
   const maxChunkDistance = useMemo(
     () =>
       chunks.reduce(
@@ -723,25 +895,26 @@ function CitySceneCanvas({
       }}
       onPointerMissed={() => onHover(null)}
     >
-      <color attach="background" args={["#cfe7ff"]} />
-      <fog attach="fog" args={["#cfe7ff", citySpan * 0.65, citySpan * 2.5]} />
+      <color attach="background" args={["#050a16"]} />
+      <fog attach="fog" args={["#0a1122", citySpan * 0.35, citySpan * 1.8]} />
 
-      <Sky
-        distance={320}
-        sunPosition={[18, 16, 9]}
-        turbidity={8.2}
-        rayleigh={1.35}
-        mieCoefficient={0.005}
-        mieDirectionalG={0.84}
+      <Stars
+        radius={citySpan * 0.95}
+        depth={citySpan * 0.9}
+        count={2500}
+        factor={4.5}
+        saturation={0}
+        fade
       />
 
-      <ambientLight intensity={0.48} />
-      <hemisphereLight args={["#f0fbff", "#3c5268", 0.72]} />
-      <pointLight position={[0, 12, 0]} color="#ffd8a3" intensity={0.24} />
+      <ambientLight intensity={0.2} />
+      <hemisphereLight args={["#24345b", "#060b17", 0.22]} />
+      <pointLight position={[0, 12, 0]} color="#f6b56a" intensity={0.2} />
       <directionalLight
         castShadow
-        position={[18, 26, 10]}
-        intensity={1.15}
+        position={[10, 24, -16]}
+        color="#89a8ff"
+        intensity={0.56}
         shadow-mapSize-width={1536}
         shadow-mapSize-height={1536}
       />
