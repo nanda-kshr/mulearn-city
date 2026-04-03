@@ -287,20 +287,6 @@ export default function CityScene({
     );
   }, [selectedMuid, residents]);
 
-  const topRecentlyActive = useMemo(
-    () =>
-      [...residents]
-        .sort((left, right) => {
-          if (right.recentEvents !== left.recentEvents) {
-            return right.recentEvents - left.recentEvents;
-          }
-
-          return right.karma - left.karma;
-        })
-        .slice(0, 6),
-    [residents],
-  );
-
   const findResidentInLoadedCity = useCallback(
     (muid: string): CityResident | null => {
       const normalized = normalizeMuid(muid);
@@ -490,11 +476,8 @@ export default function CityScene({
         ) : null}
 
         {hasStarted ? (
-          <form className="city-search city-search-overlay" onSubmit={handleSearchSubmit}>
-            <label className="city-search-label" htmlFor="city-search-muid">
-              Search MUID
-            </label>
-            <div className="city-search-row">
+          <>
+            <form className="city-search-overlay" onSubmit={handleSearchSubmit}>
               <input
                 id="city-search-muid"
                 className="city-search-input"
@@ -505,7 +488,7 @@ export default function CityScene({
                 onBlur={() => setControlsPaused(false)}
                 onKeyDown={(event) => event.stopPropagation()}
                 onKeyUp={(event) => event.stopPropagation()}
-                placeholder="eg: someone@mulearn"
+                placeholder="Search MUID"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -516,30 +499,25 @@ export default function CityScene({
               >
                 {isSearching ? "Searching" : "Search"}
               </button>
-            </div>
+            </form>
             {searchFeedback ? (
-              <p className="city-search-feedback" role="status" aria-live="polite">
+              <p
+                className="city-search-feedback city-search-feedback-overlay"
+                role="status"
+                aria-live="polite"
+              >
                 {searchFeedback}
               </p>
             ) : null}
-          </form>
+          </>
         ) : null}
 
         {hasStarted ? (
           <>
-            <div className="city-overlay-hud" aria-hidden>
-              <p className="city-overlay-title">muLearn City</p>
-              <p className="city-overlay-meta">
-                Loaded residents {residents.length} - Karma {KARMA_FORMATTER.format(totalKarma)}
-              </p>
-            </div>
+            
 
             <aside className="city-inspector city-inspector-overlay">
-              <p className="city-inspector-hint">
-                {isFocused
-                  ? "First-person mode: WASD move, Space up, Control down, mouse look. Esc or click releases cursor."
-                  : "Click the city to focus controls. Click again to release cursor."}
-              </p>
+              
 
               {selectedResident ? (
                 <section className="city-inspector-card" aria-live="polite">
@@ -576,26 +554,7 @@ export default function CityScene({
                 </section>
               ) : null}
 
-              <section className="city-hot">
-                <h3>Most active now</h3>
-                <ul className="city-hot-list">
-                  {topRecentlyActive.map((resident) => {
-                    const selected = resident.muid === selectedMuid;
-                    return (
-                      <li key={resident.muid}>
-                        <button
-                          type="button"
-                          className={`city-hot-button${selected ? " is-selected" : ""}`}
-                          onClick={() => setSelectedMuid(resident.muid)}
-                        >
-                          <span>{resident.name}</span>
-                          <span>{resident.recentEvents} evt</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
+              
             </aside>
           </>
         ) : null}
